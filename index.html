@@ -7,7 +7,261 @@
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+    <script>
+    // ============================================================
+    // FIREBASE / CLOUD FIRESTORE — CAMADA DE DADOS CENTRAL
+    // Mantém compatibilidade com a lógica já existente do sistema,
+    // sem depender do Supabase.
+    // ============================================================
+    (() => {
+        const firebaseConfig = {
+            apiKey: "AIzaSyBHE8s2WRlWneJ8wFlg0yAkKtECJrUoppM",
+            authDomain: "global-lo.firebaseapp.com",
+            projectId: "global-lo",
+            storageBucket: "global-lo.firebasestorage.app",
+            messagingSenderId: "343653833768",
+            appId: "1:343653833768:web:abcbe81a61c19ae2fa291d",
+            measurementId: "G-GPEN4JPVMW"
+        };
+
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const firestore = firebase.firestore();
+        try { firestore.settings({ ignoreUndefinedProperties: true }); } catch {}
+
+        // Persistência offline do próprio Firestore (IndexedDB).
+        // Se o navegador já tiver outra aba dona da persistência, o sistema segue online normalmente.
+        window.firebasePersistenciaPronta = firestore.enablePersistence({ synchronizeTabs: true })
+            .catch(err => {
+                if (err?.code !== 'failed-precondition' && err?.code !== 'unimplemented') {
+                    console.warn('Persistência offline do Firestore não pôde ser ativada:', err);
+                }
+            });
+
+        window.firebaseDb = firestore;
+        window.firebaseDisponivel = false;
+
+        const limparUndefined = (valor) => {
+            if (Array.isArray(valor)) return valor.map(limparUndefined);
+            if (valor && typeof valor === 'object' && !(valor instanceof Date)) {
+                const out = {};
+                for (const [k, v] of Object.entries(valor)) {
+                    if (v !== undefined) out[k] = limparUndefined(v);
+                }
+                return out;
+            }
+            return valor;
+        };
+
+        const erroNormalizado = (e) => ({
+            message: e?.message || String(e || 'Erro desconhecido'),
+            code: e?.code || '',
+            details: '',
+            hint: ''
+        });
+
+        class FirebaseQueryCompat {
+            constructor(tabela) {
+                this.tabela = tabela;
+                this.operacao = 'select';
+                this.payload = null;
+                this.filtros = [];
+                this.ordem = null;
+                this.limite = null;
+                this.faixa = null;
+                this.retornar = false;
+                this.modoSingle = null;
+                this.onConflict = null;
+            }
+            select() { this.retornar = true; return this; }
+            insert(payload) { this.operacao = 'insert'; this.payload = payload; return this; }
+            update(payload) { this.operacao = 'update'; this.payload = payload; return this; }
+            upsert(payload, opts = {}) { this.operacao = 'upsert'; this.payload = payload; this.onConflict = opts?.onConflict || null; return this; }
+            delete() { this.operacao = 'delete'; return this; }
+            eq(campo, valor) { this.filtros.push({ campo, valor }); return this; }
+            order(campo, opts = {}) { this.ordem = { campo, ascending: opts?.ascending !== false }; return this; }
+            limit(n) { this.limite = Number(n); return this; }
+            range(inicio, fim) { this.faixa = [Number(inicio), Number(fim)]; return this; }
+            single() { this.modoSingle = 'single'; return this._executar(); }
+            maybeSingle() { this.modoSingle = 'maybeSingle'; return this._executar(); }
+            then(resolve, reject) { return this._executar().then(resolve, reject); }
+
+            async _buscar() {
+                const col = firestore.collection(this.tabela);
+
+                // ID é o caso mais barato: lê diretamente o documento.
+                const idFiltro = this.filtros.find(f => f.campo === 'id');
+                let linhas = [];
+
+                if (idFiltro) {
+                    const doc = await col.doc(String(idFiltro.valor)).get();
+                    if (doc.exists) linhas = [{ id: doc.id, ...doc.data() }];
+                } else {
+                    // Usa um único where para reduzir leituras sem exigir índices compostos.
+                    let ref = col;
+                    const primeiroFiltro = this.filtros[0];
+                    if (primeiroFiltro) {
+                        ref = ref.where(primeiroFiltro.campo, '==', primeiroFiltro.valor);
+                    }
+                    const snap = await ref.get();
+                    linhas = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                }
+
+                // Demais filtros são aplicados localmente para evitar índices compostos.
+                for (const f of this.filtros) {
+                    linhas = linhas.filter(x => String(x?.[f.campo] ?? '') === String(f.valor ?? ''));
+                }
+
+                if (this.ordem) {
+                    const { campo, ascending } = this.ordem;
+                    linhas.sort((a, b) => {
+                        const av = a?.[campo], bv = b?.[campo];
+                        if (av == bv) return 0;
+                        if (av == null) return 1;
+                        if (bv == null) return -1;
+                        return (av < bv ? -1 : 1) * (ascending ? 1 : -1);
+                    });
+                }
+
+                if (this.faixa) {
+                    const [ini, fim] = this.faixa;
+                    linhas = linhas.slice(ini, fim + 1);
+                } else if (Number.isFinite(this.limite)) {
+                    linhas = linhas.slice(0, this.limite);
+                }
+                return linhas;
+            }
+
+            async _inserirUm(item, forcarId = null) {
+                const col = firestore.collection(this.tabela);
+                const limpo = limparUndefined(item || {});
+                const id = String(forcarId || limpo.id || col.doc().id);
+                const ref = col.doc(id);
+                const dados = { ...limpo, id };
+                await ref.set(dados, { merge: false });
+                return dados;
+            }
+
+            async _executar() {
+                try {
+                    let data = null;
+
+                    if (this.operacao === 'select') {
+                        data = await this._buscar();
+                    }
+
+                    if (this.operacao === 'insert') {
+                        const itens = Array.isArray(this.payload) ? this.payload : [this.payload];
+                        const salvos = [];
+                        for (const item of itens) salvos.push(await this._inserirUm(item));
+                        data = salvos;
+                    }
+
+                    if (this.operacao === 'upsert') {
+                        const itens = Array.isArray(this.payload) ? this.payload : [this.payload];
+                        const salvos = [];
+                        for (const item of itens) {
+                            let id = item?.id || null;
+                            if (!id && this.onConflict) id = item?.[this.onConflict] || null;
+                            salvos.push(await this._inserirUm(item, id));
+                        }
+                        data = salvos;
+                    }
+
+                    if (this.operacao === 'update') {
+                        const encontrados = await this._buscar();
+                        const atualizados = [];
+                        for (const linha of encontrados) {
+                            const ref = firestore.collection(this.tabela).doc(String(linha.id));
+                            const patch = limparUndefined(this.payload || {});
+                            await ref.set(patch, { merge: true });
+                            atualizados.push({ ...linha, ...patch, id: linha.id });
+                        }
+                        data = atualizados;
+                    }
+
+                    if (this.operacao === 'delete') {
+                        const encontrados = await this._buscar();
+                        for (const linha of encontrados) {
+                            await firestore.collection(this.tabela).doc(String(linha.id)).delete();
+                        }
+                        data = encontrados;
+                    }
+
+                    if (this.modoSingle === 'single') {
+                        if (!Array.isArray(data) || data.length !== 1) {
+                            return { data: data?.[0] || null, error: data?.length ? null : erroNormalizado(new Error('Registro não encontrado.')) };
+                        }
+                        return { data: data[0], error: null };
+                    }
+
+                    if (this.modoSingle === 'maybeSingle') {
+                        return { data: Array.isArray(data) ? (data[0] || null) : data, error: null };
+                    }
+
+                    return { data, error: null };
+                } catch (e) {
+                    return { data: null, error: erroNormalizado(e) };
+                }
+            }
+        }
+
+        class FirebaseChannelCompat {
+            constructor(nome) {
+                this.nome = nome;
+                this.assinaturas = [];
+                this.unsubs = [];
+            }
+            on(_tipo, config, handler) {
+                if (config?.table && typeof handler === 'function') {
+                    this.assinaturas.push({ tabela: config.table, handler });
+                }
+                return this;
+            }
+            subscribe(cb) {
+                try {
+                    for (const ass of this.assinaturas) {
+                        let primeira = true;
+                        const unsub = firestore.collection(ass.tabela).onSnapshot(
+                            snap => {
+                                if (primeira) { primeira = false; return; }
+                                for (const ch of snap.docChanges()) {
+                                    const atual = ch.type === 'removed' ? null : { id: ch.doc.id, ...ch.doc.data() };
+                                    const antigo = ch.type === 'removed' ? { id: ch.doc.id, ...ch.doc.data() } : null;
+                                    ass.handler({
+                                        eventType: ch.type,
+                                        new: atual,
+                                        old: antigo
+                                    });
+                                }
+                            },
+                            err => console.warn(`Realtime Firebase (${ass.tabela}) indisponível:`, err)
+                        );
+                        this.unsubs.push(unsub);
+                    }
+                    cb?.('SUBSCRIBED');
+                } catch (e) {
+                    cb?.('CHANNEL_ERROR');
+                }
+                return this;
+            }
+            unsubscribe() {
+                this.unsubs.forEach(fn => { try { fn(); } catch {} });
+                this.unsubs = [];
+            }
+        }
+
+        // Adapter de compatibilidade: o restante do sistema mantém a API já existente,
+        // porém todas as leituras/gravações abaixo são feitas no Cloud Firestore.
+        window.firebaseDbAdapter = {
+            from(tabela) { return new FirebaseQueryCompat(tabela); },
+            channel(nome) { return new FirebaseChannelCompat(nome); },
+            removeChannel(canal) { try { canal?.unsubscribe?.(); } catch {} }
+        };
+    })();
+    </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -3141,7 +3395,7 @@
 
         // Sincronização exclusiva dos lembretes com o Supabase.
         // Antes, este módulo salvava apenas no localStorage; por isso o lembrete
-        // desaparecia em outro dispositivo e não chegava à tabela lembretes.
+        // desaparecia em outro dispositivo e não chegava à coleção lembretes.
         window.sincronizarLembretesAgora = async () => {
             if (!window.supabaseDisponivel || typeof sincronizarColecao !== 'function') return;
 
@@ -4057,7 +4311,7 @@
                     }
 
                     const lojaId = lojaIdPorSlug(slug);
-                    if (!lojaId) throw new Error(`Loja sem id no Supabase: ${slug}`);
+                    if (!lojaId) throw new Error(`Loja sem id no Firebase: ${slug}`);
 
                     // A tabela sangrias usa id UUID no banco e legacy_id para o id local.
                     // Primeiro tentamos o UUID já conhecido; se não existir, localizamos
@@ -6076,16 +6330,17 @@
 
     <script>
     // ============================================================
-    // MULTI-LOJAS + SUPABASE
+    // MULTI-LOJAS + FIREBASE
     // Mantém o funcionamento local existente e acrescenta:
-    // - migração segura do localStorage para o Supabase;
+    // - migração segura do histórico local para o Firebase;
     // - sincronização por loja;
     // - carregamento remoto para uso em outros dispositivos;
     // - painel geral consolidado a partir dos dados sincronizados.
     // ============================================================
     (() => {
-        const SUPABASE_URL = 'https://pyszkebplijapypcascv.supabase.co';
-        const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_EPJytBL6lEU8hKiUcEeHfA_EfRpUihc';
+        // Banco central atual: Firebase / Cloud Firestore.
+        // Os nomes internos "supabase*" abaixo foram preservados apenas como compatibilidade
+        // com funções antigas do sistema; nenhuma conexão com Supabase é realizada.
         const LOJAS = [
             { slug: 'real_papelaria', nome: 'Real Papelaria', cupom: 'REAL PAPELARIA' },
             { slug: 'tecn_in', nome: 'TECN IN', cupom: 'TECN IN' },
@@ -6425,32 +6680,32 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
             salvarArrayLoja(BASES_LOCAIS.boletos, window.lojaAtualSlug, todosBoletosBanco);
         }
 
-        function obterDefinicaoTabela(openapi, tabela) {
-            const defs = openapi?.definitions || openapi?.components?.schemas || {};
-            const chave = Object.keys(defs).find(k => k === tabela || k.endsWith(`.${tabela}`));
-            return chave ? defs[chave] : null;
-        }
+        function obterDefinicaoTabela() { return null; }
 
         async function carregarEsquemaSupabase() {
-            try {
-                const resp = await fetch(`${SUPABASE_URL}/rest/v1/`, {
-                    headers: {
-                        apikey: SUPABASE_PUBLISHABLE_KEY,
-                        Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
-                        Accept: 'application/openapi+json'
-                    }
-                });
-                if (!resp.ok) throw new Error(`OpenAPI ${resp.status}`);
-                const openapi = await resp.json();
-                [...TABELAS_SYNC, 'lojas'].forEach(tabela => {
-                    const def = obterDefinicaoTabela(openapi, tabela);
-                    if (def?.properties) COLUNAS[tabela] = def;
-                });
-                return Object.keys(COLUNAS).length > 0;
-            } catch (e) {
-                console.warn('Não foi possível ler o esquema OpenAPI do Supabase:', e);
-                return false;
+            // Firestore não exige esquema SQL/OpenAPI. Declaramos apenas os campos
+            // usados pelo sistema para manter os conversores existentes funcionando.
+            const schemas = {
+                vendas: ['id','loja_id','legado_id','payload','timestamp','data_iso','data_br','hora','forma_pagamento','detalhes','vendedor','descricao','cliente_nome','cliente_doc','qtd','unitario','total','recebido','troco','itens'],
+                recebimentos: ['id','loja_id','legado_id','payload','timestamp','data_iso','data_br','hora','vendedor','cliente_nome','cliente_doc','tipo','forma','detalhes','valor','recebido'],
+                sangrias: ['id','loja_id','legacy_id','data_movimento','hora_movimento','valor','motivo','responsavel','dados_originais'],
+                lembretes: ['id','loja_id','legado_id','payload','timestamp','cliente','telefone','produto','valor','data_vencimento','status','criado_em','concluido_em'],
+                boletos: ['id','loja_id','legado_id','payload','timestamp','cobrador','cnpj','valor','vencimento','forma_pagamento','codigo_pagamento','prioridade','prioridade_score','status','criado_em','pago_em'],
+                venda_itens: ['id','loja_id','legado_id','payload','venda_id','descricao','qtd','unitario','total'],
+                lojas: ['id','slug','nome','payload'],
+                registros_excluidos: ['id','loja_id','tipo','legacy_id'],
+                orcamentos: ['id','loja_id','numero','cliente_nome','cliente_doc','cliente_telefone','data_orcamento','validade','observacoes','subtotal','total','status','itens','config_loja','criado_em','atualizado_em'],
+                finance_lancamentos: ['id','loja_id'],
+                finance_recorrentes: ['id','loja_id']
+            };
+            for (const [tabela, campos] of Object.entries(schemas)) {
+                const properties = {};
+                for (const c of campos) {
+                    properties[c] = { type: ['timestamp','qtd','unitario','total','recebido','troco','valor','prioridade_score'].includes(c) ? 'number' : (['payload','detalhes','itens','dados_originais','config_loja'].includes(c) ? 'object' : 'string') };
+                }
+                COLUNAS[tabela] = { properties };
             }
+            return true;
         }
 
         // Fallback deterministico para sincronizacao.
@@ -6669,7 +6924,7 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
         async function sincronizarRegistro(tabela, registro, slug, mapa) {
             if (!COLUNAS[tabela]) return;
             const lojaId = lojaIdPorSlug(slug);
-            if (!lojaId) throw new Error(`Loja sem id no Supabase: ${slug}`);
+            if (!lojaId) throw new Error(`Loja sem id no Firebase: ${slug}`);
             const chaveLocal = String(registro.id ?? assinatura(registro));
             const hash = assinatura(registro);
             let info = mapa[chaveLocal];
@@ -6707,7 +6962,7 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
         }
 
         async function salvarRegistroDiretoNoSupabase(tabela, registro, slug) {
-            if (!window.supabaseDisponivel || !window.supabaseClient) throw new Error('Supabase indisponível.');
+            if (!window.supabaseDisponivel || !window.supabaseClient) throw new Error('Firebase indisponível.');
             const mapa = carregarMapa(tabela, slug);
             await sincronizarRegistro(tabela, { ...registro, lojaSlug: slug }, slug, mapa);
             salvarMapa(tabela, slug, mapa);
@@ -6804,7 +7059,7 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
             }
 
             const lojaId = lojaIdPorSlug(slug);
-            if (!lojaId) throw new Error(`Loja sem id no Supabase: ${slug}`);
+            if (!lojaId) throw new Error(`Loja sem id no Firebase: ${slug}`);
 
             const mapa = carregarMapa('sangrias', slug);
             const chaveLocal = String(sangria.id ?? assinatura(sangria));
@@ -6865,7 +7120,7 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
 
         async function migrarLegadoLocalParaSupabase() {
             if (!window.supabaseDisponivel || !window.supabaseClient) return;
-            const chaveMigracao = 'caixaExpressoMigracaoLocalV1';
+            const chaveMigracao = 'caixaExpressoMigracaoFirebaseV1';
             if (localStorage.getItem(chaveMigracao) === 'concluida') return;
 
             // Migração de segurança: lê somente cópias antigas que já estavam no navegador
@@ -7156,7 +7411,7 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
             });
             const boletosRemotos = bLinhas.map(l => ({...boletoDoDb(l), lojaSlug: slug}));
 
-            // Supabase continua sendo a fonte de verdade. Para sangrias, somente registros
+            // Firebase continua sendo a fonte de verdade. Para sangrias, somente registros
             // ainda não confirmados ficam preservados localmente até a fila concluir.
             salvarArrayLoja(BASES_LOCAIS.vendas, slug, [...vendasRemotas, ...recebimentosRemotos]
                 .sort((a,b) => Number(b.timestamp || 0) - Number(a.timestamp || 0)));
@@ -7250,65 +7505,59 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
             timerAtualizacaoRemota = setTimeout(() => aplicarAtualizacaoRemota(slug), atraso);
         }
 
+
         function instalarTempoRealSupabase() {
             if (!window.supabaseClient || canalTempoReal) return;
 
             const tratarEvento = (payload) => {
-                // Para INSERT/UPDATE normalmente temos loja_id em new. Para DELETE,
-                // com REPLICA IDENTITY FULL, ele vem em old. Se não vier, atualizamos todas.
                 const lojaId = payload?.new?.loja_id ?? payload?.old?.loja_id ?? null;
                 const slug = slugPorLojaIdRemoto(lojaId);
-                agendarAtualizacaoRemota(slug, 120);
+                agendarAtualizacaoRemota(slug, 180);
             };
 
             canalTempoReal = window.supabaseClient
-                .channel('caixa-expresso-tempo-real')
+                .channel('caixa-expresso-firebase-tempo-real')
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, tratarEvento)
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'recebimentos' }, tratarEvento)
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'sangrias' }, tratarEvento)
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'lembretes' }, tratarEvento)
                 .subscribe((status) => {
-                    if (status === 'SUBSCRIBED') console.info('Supabase Realtime conectado.');
-                    else if (status === 'CHANNEL_ERROR') console.warn('Supabase Realtime indisponível; usando atualização automática de segurança.');
+                    if (status === 'SUBSCRIBED') console.info('Firebase Realtime conectado.');
+                    else if (status === 'CHANNEL_ERROR') console.warn('Firebase Realtime indisponível.');
                 });
 
-            // Segurança: mesmo se o Realtime estiver desativado para alguma tabela,
-            // os aparelhos conferem o Supabase periodicamente. Isso também elimina
-            // qualquer cache antigo deixado por versões anteriores.
-            if (!intervaloSegurancaRemota) {
-                intervaloSegurancaRemota = setInterval(() => {
-                    if (document.visibilityState !== 'visible' || !window.supabaseDisponivel) return;
-                    const geralVisivel = !document.getElementById('tela-geral-lojas')?.classList.contains('hidden');
-                    agendarAtualizacaoRemota(geralVisivel ? null : window.lojaAtualSlug, 40);
-                }, 4000);
-            }
-
+            // Sem polling a cada 4 segundos. Ao voltar para a aba, fazemos uma conferência.
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible' && window.supabaseDisponivel) {
-                    agendarAtualizacaoRemota(null, 80);
+                    agendarAtualizacaoRemota(null, 120);
                 }
             });
         }
 
         async function inicializarSupabase() {
-            setStatusBanco('Banco: conectando', 'sync');
+            setStatusBanco('Banco: conectando ao Firebase', 'sync');
             try {
-                if (!window.supabase || !window.supabase.createClient) throw new Error('SDK Supabase não carregado');
-                window.supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
-                const teste = await window.supabaseClient.from('lojas').select('*').limit(1);
-                if (teste.error) throw new Error(`lojas: ${formatarErroSupabase(teste.error)}`);
+                await window.firebasePersistenciaPronta;
+                if (!window.firebaseDb || !window.firebaseDbAdapter) throw new Error('SDK Firebase não carregado');
+
+                // Alias de compatibilidade interna. Não usa Supabase.
+                window.supabaseClient = window.firebaseDbAdapter;
                 window.supabaseDisponivel = true;
+                window.firebaseDisponivel = true;
+
                 await carregarEsquemaSupabase();
                 aplicarEsquemaFallback();
+                await garantirLojasFirebase();
                 await carregarLojasSupabase();
+
                 restaurarFilaSangriasNaMemoria();
                 await processarFilaSangrias();
-                setStatusBanco('Banco: conectado', 'ok');
+                setStatusBanco('Banco: Firebase conectado', 'ok');
+
+                // Recupera, quando existir, qualquer histórico antigo ainda presente
+                // neste navegador e envia ao Firebase sem apagar o que já estiver no banco.
                 await migrarLegadoLocalParaSupabase();
 
-                // A partir daqui o Supabase é a
-                // fonte de verdade ao abrir o sistema, evitando que um celular/PC com
-                // localStorage antigo reenvie vendas que já foram excluídas em outro aparelho.
                 const errosLeitura = await baixarTodasLojas();
                 if (errosLeitura?.length) throw new Error(`leitura de vendas: ${errosLeitura[0]}`);
 
@@ -7318,17 +7567,18 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
                 window.multiLojaInicializado = true;
                 inicializacaoConcluida = true;
                 instalarTempoRealSupabase();
-                setStatusBanco('Banco: sincronizado', 'ok');
+                setStatusBanco('Banco: Firebase sincronizado', 'ok');
             } catch (e) {
                 inicializacaoConcluida = true;
                 const msg = formatarErroSupabase(e);
                 window.__ultimoErroSupabase = msg;
-                console.error('Supabase - erro real:', e);
-                // Mantém o cliente marcado como disponível quando a conexão base funcionou;
-                // isso permite novas tentativas após corrigir RLS sem recarregar toda a lógica local.
-                if (!window.supabaseClient) window.supabaseDisponivel = false;
+                console.error('Firebase - erro real:', e);
+                if (!window.firebaseDbAdapter) {
+                    window.supabaseDisponivel = false;
+                    window.firebaseDisponivel = false;
+                }
                 setStatusBanco(`Banco: erro • ${msg}`.slice(0, 95), 'erro');
-                mostrarToast(`Supabase: ${msg}`.slice(0, 220), 'bg-red-600 text-white');
+                mostrarToast(`Firebase: ${msg}`.slice(0, 220), 'bg-red-600 text-white');
             }
         }
 
@@ -7602,7 +7852,7 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
                     const tabela = tipo === 'sangria' ? 'sangrias' : (tipo === 'recebimento' ? 'recebimentos' : 'vendas');
 
                     if (tipo === 'sangria') {
-                        // Primeiro grava na fila de segurança; só sai dela quando o Supabase confirmar.
+                        // Primeiro grava na fila de segurança; só sai dela quando o Firebase confirmar.
                         novos.forEach(r => enfileirarSangria(window.lojaAtualSlug, r));
                         if (window.supabaseDisponivel) {
                             processarFilaSangrias()
@@ -7610,7 +7860,7 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
                                     if (ok) setStatusBanco('Banco: sincronizado', 'ok');
                                 })
                                 .catch(e => {
-                                    console.error('Falha ao salvar sangria diretamente no Supabase:', e);
+                                    console.error('Falha ao salvar sangria diretamente no Firebase:', e);
                                     setStatusBanco('Banco: sangria aguardando sincronização', 'aviso');
                                     reagendarFilaSangrias();
                                 });
@@ -7623,7 +7873,7 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
                             salvarRegistroDiretoNoSupabase(tabela, r, window.lojaAtualSlug)
                                 .then(() => setStatusBanco('Banco: sincronizado', 'ok'))
                                 .catch(e => {
-                                    console.error(`Falha ao salvar ${tabela} diretamente no Supabase:`, e);
+                                    console.error(`Falha ao salvar ${tabela} diretamente no Firebase:`, e);
                                     setStatusBanco(`Banco: erro ao salvar ${tabela}`, 'erro');
                                     mostrarToast(`${tipo === 'recebimento' ? 'Recebimento' : 'Venda'} não confirmada no banco: ${formatarErroSupabase(e)}`.slice(0, 220), 'bg-red-600 text-white');
                                 });
@@ -7640,7 +7890,7 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
             if (!window.supabaseDisponivel || !window.supabaseClient || !COLUNAS.vendas) return { remoto: false };
 
             const lojaId = lojaIdPorSlug(slug);
-            if (!lojaId) throw new Error(`Loja sem id no Supabase: ${slug}`);
+            if (!lojaId) throw new Error(`Loja sem id no Firebase: ${slug}`);
 
             const idCampo = campo('vendas', ['id']);
             const lojaCampo = campo('vendas', ['loja_id']);
@@ -7675,7 +7925,7 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
                 exclusao = window.supabaseClient.from('vendas').delete().eq(origemCampo, String(venda.id));
                 if (lojaCampo && lojaId) exclusao = exclusao.eq(lojaCampo, lojaId);
             } else {
-                throw new Error('Não foi possível identificar a venda no Supabase para exclusão.');
+                throw new Error('Não foi possível identificar a venda no Firebase para exclusão.');
             }
 
             const { error } = await exclusao;
@@ -7715,9 +7965,9 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
                             mostrarToast('Venda apagada do caixa, Painel Geral e banco de dados.', 'bg-gray-800 text-white');
                         } catch (e) {
                             const msg = formatarErroSupabase(e);
-                            console.error('Falha ao excluir venda no Supabase:', e);
+                            console.error('Falha ao excluir venda no Firebase:', e);
                             setStatusBanco('Banco: erro ao excluir venda', 'erro');
-                            mostrarToast(`Venda removida localmente, mas o Supabase não confirmou a exclusão: ${msg}`.slice(0, 220), 'bg-red-600 text-white');
+                            mostrarToast(`Venda removida localmente, mas o Firebase não confirmou a exclusão: ${msg}`.slice(0, 220), 'bg-red-600 text-white');
                         }
                     }
                 );
@@ -8312,7 +8562,7 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
         }));
 
         // Não apaga o cache local quando uma leitura remota vier vazia.
-        // Assim, uma resposta vazia/intermitente do Supabase não faz
+        // Assim, uma resposta vazia/intermitente do Firebase não faz
         // contas já salvas desaparecerem do Financeiro.
         if (remotoLancamentos.length > 0 || financeiroDados.length === 0) {
             financeiroDados = remotoLancamentos;
