@@ -6120,11 +6120,24 @@
 
         async function semearVendedoresLegadoSeNecessario(lojaId) {
             if (!window.firebaseDb || !lojaId) return;
+
+            // Garante que TODOS os vendedores que já existiam nos selects do sistema
+            // apareçam no novo módulo como cadastros ativos da loja, mesmo que a coleção
+            // vendedores já tenha algum registro criado manualmente.
             const snap = await window.firebaseDb.collection('vendedores').where('loja_id','==',lojaId).get();
-            if (!snap.empty) return;
+            const existentes = new Set(
+                snap.docs
+                    .map(d => normalizarNomeVendedor(d.data()?.nome).toLocaleLowerCase('pt-BR'))
+                    .filter(Boolean)
+            );
 
             const nomes = [...new Set([...VENDEDORES_LEGADO, ...vendedoresHistoricosLoja()])]
-                .map(normalizarNomeVendedor).filter(Boolean);
+                .map(normalizarNomeVendedor)
+                .filter(Boolean)
+                .filter(nome => !existentes.has(nome.toLocaleLowerCase('pt-BR')));
+
+            if (!nomes.length) return;
+
             const batch = window.firebaseDb.batch();
             const agora = new Date().toISOString();
             nomes.forEach(nome => {
@@ -6140,7 +6153,7 @@
                     origem: 'cadastro_legado'
                 });
             });
-            if (nomes.length) await batch.commit();
+            await batch.commit();
         }
 
         window.carregarVendedoresLoja = async (silencioso = false) => {
