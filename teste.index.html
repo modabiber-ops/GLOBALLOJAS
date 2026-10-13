@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Recuperador de Vendas | Global Lojas</title>
+<style>
+body{font-family:Arial,sans-serif;background:#0b0f0c;color:#f4f7f1;margin:0;padding:24px}
+.wrap{max-width:980px;margin:auto}.card{background:#121812;border:1px solid #263027;border-radius:18px;padding:20px;margin-bottom:16px}
+button{background:#baff18;color:#111512;border:0;border-radius:12px;padding:12px 16px;font-weight:800;cursor:pointer;margin-right:8px}
+button:disabled{opacity:.5}.secondary{background:#1b241c;color:#fff;border:1px solid #314033}
+.ok{color:#baff18}.warn{color:#ffd166}.err{color:#ff6b6b}.muted{color:#9aa59a}
+table{width:100%;border-collapse:collapse}th,td{padding:9px;border-bottom:1px solid #263027;text-align:left}
+pre{white-space:pre-wrap;background:#090c0a;border:1px solid #263027;padding:12px;border-radius:12px;max-height:280px;overflow:auto}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+</head>
+<body><div class="wrap">
+<div class="card">
+<h1>Recuperador de vendas</h1>
+<p class="muted">13/10/2026 • 10:00 até 13:27</p>
+<p>Compara Supabase antigo x Firebase novo. <b>Não apaga nada.</b></p>
+</div>
+<div class="card">
+<button id="btnAnalisar" onclick="analisar()">1. Analisar faltantes</button>
+<button id="btnImportar" class="secondary" onclick="importarFaltantes()" disabled>2. Importar somente as faltantes</button>
+<p id="status" class="muted">Aguardando.</p>
+</div>
+<div class="card"><h3>Resumo</h3><div id="resumo" class="muted">Nenhuma análise executada.</div></div>
+<div class="card"><h3>Vendas faltantes</h3><div style="overflow:auto"><table>
+<thead><tr><th>Hora</th><th>Vendedor</th><th>Descrição</th><th>Total</th><th>ID antigo</th></tr></thead>
+<tbody id="faltantesBody"></tbody></table></div></div>
+<div class="card"><h3>Log</h3><pre id="log"></pre></div>
+</div>
+<script>
+const SUPABASE_URL='https://pyszkebplijapypcascv.supabase.co';
+const SUPABASE_KEY='sb_publishable_EPJytBL6lEU8hKiUcEeHfA_EfRpUihc';
+const firebaseConfig={apiKey:"AIzaSyBHE8s2WRlWneJ8wFlg0yAkKtECJrUoppM",authDomain:"global-lo.firebaseapp.com",projectId:"global-lo",storageBucket:"global-lo.firebasestorage.app",messagingSenderId:"343653833768",appId:"1:343653833768:web:abcbe81a61c19ae2fa291d",measurementId:"G-GPEN4JPVMW"};
+const INICIO_UTC='2026-10-13T13:00:00+00:00', FIM_UTC='2026-10-13T16:27:00+00:00';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+const db=firebase.firestore();
+let faltantes=[], analisadas=[];
+
+function log(m,c=''){const e=document.getElementById('log'),d=document.createElement('div');if(c)d.className=c;d.textContent='['+new Date().toLocaleTimeString('pt-BR')+'] '+m;e.appendChild(d);e.scrollTop=e.scrollHeight}
+function setStatus(m,c='muted'){const e=document.getElementById('status');e.className=c;e.textContent=m}
+function dinheiro(v){const n=Number(String(v??'0').replace(',','.'))||0;return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}
+function norm(row){const p=row?.payload&&typeof row.payload==='object'?row.payload:{};return {...row,payload:p,antigoId:String(row?.legado_id??p?.id??row?.id??''),hora:p?.hora??'',vendedor:p?.vendedor??'',descricao:p?.descricao??'',total:Number(p?.total??0),formaPagamento:p?.formaPagamento??p?.forma_pagamento??'',dataIso:p?.dataIso??p?.data_iso??''}}
+function assinatura(v){return [String(v.loja_id||''),String(v.vendedor||'').trim().toLowerCase(),String(v.descricao||'').trim().toLowerCase(),Number(v.total||0).toFixed(2),String(v.hora||'').slice(0,5)].join('|')}
+async function buscarSupabase(){const {data,error}=await sb.from('vendas').select('*').gte('criado_em',INICIO_UTC).lte('criado_em',FIM_UTC).order('criado_em',{ascending:true});if(error)throw error;return (data||[]).map(norm)}
+async function carregarIdx(){const snap=await db.collection('vendas').get(),ids=new Set(),legados=new Set(),ass=new Set();snap.forEach(doc=>{const d=doc.data()||{};ids.add(String(doc.id));if(d.id!=null)ids.add(String(d.id));if(d.legado_id!=null)legados.add(String(d.legado_id));if(d.legacy_id!=null)legados.add(String(d.legacy_id));const p=d.payload&&typeof d.payload==='object'?d.payload:{};if(p.id!=null)legados.add(String(p.id));ass.add(assinatura(norm(d)))});return{ids,legados,ass}}
+function existe(v,idx){if(v.antigoId&&(idx.ids.has(v.antigoId)||idx.legados.has(v.antigoId)))return true;if(v.id&&idx.ids.has(String(v.id)))return true;if(idx.ass.has(assinatura(v)))return true;return false}
+function render(){const b=document.getElementById('faltantesBody');b.innerHTML='';faltantes.forEach(v=>{const tr=document.createElement('tr');tr.innerHTML=`<td>${v.hora||'-'}</td><td>${v.vendedor||'-'}</td><td>${v.descricao||'-'}</td><td>${dinheiro(v.total)}</td><td>${v.antigoId||v.id||'-'}</td>`;b.appendChild(tr)});const ja=analisadas.length-faltantes.length;document.getElementById('resumo').innerHTML=`Encontradas no Supabase: <b>${analisadas.length}</b><br>Já existentes no Firebase: <b>${ja}</b><br>Faltando no Firebase: <b>${faltantes.length}</b>`;document.getElementById('btnImportar').disabled=faltantes.length===0}
+async function analisar(){document.getElementById('btnAnalisar').disabled=true;document.getElementById('btnImportar').disabled=true;document.getElementById('log').innerHTML='';setStatus('Analisando...','warn');try{log('Buscando vendas no Supabase entre 10:00 e 13:27...');analisadas=await buscarSupabase();log(`Supabase retornou ${analisadas.length} venda(s).`,'ok');log('Comparando com o Firebase...');const idx=await carregarIdx();faltantes=analisadas.filter(v=>!existe(v,idx));render();setStatus(faltantes.length?`Encontradas ${faltantes.length} venda(s) faltante(s). Revise e importe.`:'Nenhuma venda faltante encontrada.',faltantes.length?'warn':'ok')}catch(e){console.error(e);setStatus('Erro: '+(e.message||e),'err');log('ERRO: '+(e.message||e),'err')}finally{document.getElementById('btnAnalisar').disabled=false}}
+async function importarFaltantes(){if(!faltantes.length)return;if(!confirm(`Importar somente ${faltantes.length} venda(s) faltante(s)?`))return;document.getElementById('btnImportar').disabled=true;setStatus('Importando...','warn');try{let ok=0;for(const v of faltantes){const id=v.antigoId||String(v.id);await db.collection('vendas').doc(id).set({...v,id,legado_id:v.antigoId||null,payload:v.payload||{},_recuperado_do_supabase:true,_recuperado_em:new Date().toISOString()},{merge:true});ok++;log(`Importada ${id} • ${dinheiro(v.total)} • ${v.vendedor||'-'}`,'ok')}setStatus(`${ok} venda(s) recuperada(s).`,'ok');await analisar()}catch(e){console.error(e);setStatus('Erro ao importar: '+(e.message||e),'err');log('ERRO AO IMPORTAR: '+(e.message||e),'err')}}
+</script></body></html>
