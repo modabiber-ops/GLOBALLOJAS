@@ -28,7 +28,7 @@
 <div class="wrap">
   <div class="card">
     <h1>Migrador Supabase → Firebase</h1>
-    <p class="muted">Global Lojas — migração única do histórico antigo para o Firestore novo.</p>
+    <p class="muted">Global Lojas — migração única do histórico antigo para o Firestore novo. <b>Versão 2 — suporta registros maiores que 1 MiB.</b></p>
     <p><b>Segurança:</b> este migrador <span class="ok">não apaga nada do Supabase</span>. Ele apenas lê o banco antigo e faz <b>upsert</b> no Firebase, preservando IDs para evitar duplicação.</p>
   </div>
 
@@ -140,21 +140,115 @@ function limparParaFirestore(v){
 
 async function gravarColecao(nome, rows){
   let total = 0;
-  for (let i=0;i<rows.length;i+=400) {
-    const chunk = rows.slice(i,i+400);
-    const batch = db.batch();
-    for (const row of chunk) {
-      const id = safeDocId(row);
-      const ref = db.collection(nome).doc(id);
-      batch.set(ref, {
-        ...limparParaFirestore(row),
-        _migrado_do_supabase: true,
-        _migrado_em: new Date().toISOString()
-      }, {merge:true});
+  let adaptados = 0;
+  let arquivados = 0;
+
+  const tamanhoBytes = obj => new Blob([JSON.stringify(obj)]).size;
+
+  async function arquivarOriginalGrande(nome, id, row){
+    // Preserva uma cópia integral do registro grande em partes menores.
+    // Essa coleção é apenas de segurança; o sistema normal continua lendo a coleção original.
+    const bruto = JSON.stringify(row);
+    const chunkSize = 700000; // margem segura abaixo do limite de 1 MiB
+    const partes = Math.ceil(bruto.length / chunkSize);
+    for (let p = 0; p < partes; p++) {
+      const trecho = bruto.slice(p * chunkSize, (p + 1) * chunkSize);
+      await db.collection('_migracao_arquivos_grandes')
+        .doc(`${nome}__${id}__${String(p+1).padStart(3,'0')}`)
+        .set({
+          tabela: nome,
+          registro_id: id,
+          parte: p + 1,
+          total_partes: partes,
+          conteudo_json: trecho,
+          migrado_em: new Date().toISOString()
+        }, {merge:true});
     }
-    await batch.commit();
-    total += chunk.length;
+    arquivados++;
   }
+
+  function versaoOperacional(nome, row){
+    const limpo = limparParaFirestore(row);
+
+    // Para orçamentos, mantém tudo que o Caixa Expresso usa no dia a dia.
+    // Campos muito pesados/duplicados ficam no arquivo de segurança acima.
+    if (nome === 'orcamentos') {
+      const permitido = [
+        'id','loja_id','numero','cliente_nome','cliente_doc','cliente_telefone',
+        'data_orcamento','validade','observacoes','subtotal','total','status',
+        'itens','config_loja','criado_em','atualizado_em'
+      ];
+      const out = {};
+      for (const k of permitido) if (limpo[k] !== undefined) out[k] = limpo[k];
+
+      // config_loja pode conter imagem/logo em base64 e estourar 1 MiB.
+      if (out.config_loja && tamanhoBytes(out) > 850000) {
+        const cfg = {...out.config_loja};
+        for (const chave of Object.keys(cfg)) {
+          if (typeof cfg[chave] === 'string' && cfg[chave].length > 100000) {
+            delete cfg[chave];
+          }
+        }
+        out.config_loja = cfg;
+      }
+
+      // itens também pode carregar campos duplicados ou imagens.
+      if (Array.isArray(out.itens) && tamanhoBytes(out) > 850000) {
+        out.itens = out.itens.map(item => {
+          if (!item || typeof item !== 'object') return item;
+          const i = {...item};
+          for (const chave of Object.keys(i)) {
+            if (typeof i[chave] === 'string' && i[chave].length > 100000) delete i[chave];
+          }
+          return i;
+        });
+      }
+      return out;
+    }
+
+    return limpo;
+  }
+
+  for (const row of rows) {
+    const id = safeDocId(row);
+    const original = {
+      ...limparParaFirestore(row),
+      _migrado_do_supabase: true,
+      _migrado_em: new Date().toISOString()
+    };
+
+    try {
+      let gravar = original;
+
+      // Firestore limita cada documento a ~1 MiB.
+      if (tamanhoBytes(gravar) > 850000) {
+        await arquivarOriginalGrande(nome, id, original);
+        gravar = {
+          ...versaoOperacional(nome, row),
+          id: row?.id ?? id,
+          _migrado_do_supabase: true,
+          _migrado_em: new Date().toISOString(),
+          _registro_original_grande: true,
+          _arquivo_seguro: `_migracao_arquivos_grandes/${nome}__${id}__*`
+        };
+        adaptados++;
+      }
+
+      await db.collection(nome).doc(id).set(gravar, {merge:true});
+      total++;
+    } catch (e) {
+      log(`${nome}/${id}: erro ao gravar — ${e.message || e}`, 'err');
+      // Continua os demais registros/tabelas, sem abortar toda a migração.
+    }
+  }
+
+  if (adaptados) {
+    log(`${nome}: ${adaptados} registro(s) grande(s) adaptado(s) para o Firestore; cópia integral arquivada em partes.`, 'warn');
+  }
+  if (arquivados) {
+    log(`${nome}: ${arquivados} registro(s) integral(is) preservado(s) em _migracao_arquivos_grandes.`, 'warn');
+  }
+
   return total;
 }
 
