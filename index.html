@@ -1274,7 +1274,7 @@
 
             <div onclick="window.mudarAba('vendedores')" id="nav-vendedores" class="nav-btn">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-                <span>Equipe</span>
+                <span>Vendedores</span>
             </div>
 
             <div onclick="window.mudarAba('orcamentos')" id="nav-orcamentos" class="nav-btn">
@@ -1855,16 +1855,49 @@
         <div id="tela-vendedores" class="fade-in hidden h-full flex flex-col bg-gray-100 dark:bg-[#0f111a] transition-colors duration-300">
             <header class="md:hidden bg-blue-800 dark:bg-[#161925] text-white p-6 pb-6 rounded-b-3xl shadow-md z-10 relative flex-none border-b border-transparent dark:border-gray-800">
                 <h1 class="text-2xl font-bold text-center tracking-wide text-white dark:text-gray-100">Vendedores</h1>
-                <p class="text-blue-200 dark:text-cyan-400 text-center text-sm mt-1 font-medium">Desempenho da equipe</p>
+                <p class="text-blue-200 dark:text-cyan-400 text-center text-sm mt-1 font-medium">Cadastro e desempenho da equipe</p>
             </header>
 
             <div class="p-4 py-6 md:p-8 flex-1 w-full max-w-7xl mx-auto flex flex-col overflow-y-auto no-scrollbar">
-                <div class="flex flex-col md:flex-row md:justify-between md:items-end mb-6 md:mb-8 gap-4">
-                    <div class="hidden md:block">
-                        <h1 class="text-3xl font-bold text-gray-800 dark:text-white tracking-tight">Desempenho da Equipe</h1>
-                        <p class="text-gray-500 dark:text-gray-400 mt-1">Acompanhe o total vendido hoje e o acumulado do mês por vendedor.</p>
+                <div class="mb-6 md:mb-8">
+                    <div class="hidden md:block mb-5">
+                        <h1 class="text-3xl font-bold text-gray-800 dark:text-white tracking-tight">Vendedores</h1>
+                        <p class="text-gray-500 dark:text-gray-400 mt-1">Cadastre e gerencie os vendedores da loja ativa. Somente vendedores ativos aparecem no lançamento de vendas.</p>
                     </div>
-                    <div>
+
+                    <div class="grid grid-cols-1 xl:grid-cols-[380px_1fr] gap-5 mb-8">
+                        <div class="bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 rounded-3xl p-5 md:p-6 shadow-sm">
+                            <p class="text-[10px] uppercase tracking-[.16em] font-black text-gray-400">Cadastro</p>
+                            <h2 class="text-xl font-black text-gray-900 dark:text-white mt-1">Novo vendedor</h2>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 mb-5">O cadastro é separado por loja.</p>
+                            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="cadVendedorNome">Nome do vendedor</label>
+                            <input id="cadVendedorNome" type="text" autocomplete="off" placeholder="Ex: João" class="w-full bg-gray-50 dark:bg-[#0f111a] dark:text-white border border-gray-200 dark:border-gray-700 p-3.5 rounded-xl focus:outline-none focus:border-blue-500 dark:focus:border-cyan-500" onkeydown="if(event.key==='Enter'){event.preventDefault();window.salvarCadastroVendedor();}">
+                            <div class="flex gap-2 mt-3">
+                                <button id="btnSalvarVendedor" type="button" onclick="window.salvarCadastroVendedor()" class="flex-1 bg-blue-600 hover:bg-blue-700 dark:bg-cyan-600 dark:hover:bg-cyan-500 text-white font-black py-3 rounded-xl transition-colors">Cadastrar vendedor</button>
+                                <button id="btnCancelarEdicaoVendedor" type="button" onclick="window.cancelarEdicaoVendedor()" class="hidden px-4 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 font-bold rounded-xl">Cancelar</button>
+                            </div>
+                        </div>
+
+                        <div class="bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 rounded-3xl p-5 md:p-6 shadow-sm">
+                            <div class="flex items-start justify-between gap-4 mb-4">
+                                <div>
+                                    <p class="text-[10px] uppercase tracking-[.16em] font-black text-gray-400">Loja ativa</p>
+                                    <h2 id="tituloCadastroVendedoresLoja" class="text-xl font-black text-gray-900 dark:text-white mt-1">Vendedores cadastrados</h2>
+                                </div>
+                                <span id="contadorVendedoresAtivos" class="text-[10px] font-black px-3 py-2 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">0 ativos</span>
+                            </div>
+                            <div id="listaCadastroVendedores" class="space-y-2">
+                                <div class="text-sm text-gray-400 py-4">Carregando vendedores...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
+                        <div>
+                            <p class="text-[10px] uppercase tracking-[.16em] font-black text-gray-400">Performance</p>
+                            <h2 class="text-2xl font-black text-gray-900 dark:text-white mt-1">Desempenho da equipe</h2>
+                            <p class="text-gray-500 dark:text-gray-400 mt-1">Acompanhe o total vendido hoje e o acumulado do mês por vendedor.</p>
+                        </div>
                         <button onclick="window.abrirModalRelatorioVendedor()" class="w-full md:w-auto bg-blue-600 hover:bg-blue-700 dark:bg-cyan-600 dark:hover:bg-cyan-500 text-white font-bold py-3 px-6 rounded-xl transition-colors shadow-lg active:scale-95 flex items-center justify-center gap-2">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                             Baixar Relatório de Vendas
@@ -2896,6 +2929,7 @@
             } else if (aba === 'vendedores') {
                 tVend.classList.remove('hidden'); tVend.classList.add('flex');
                 btnVend.classList.add('active');
+                window.carregarVendedoresLoja?.(true);
                 window.renderizarDashVendedores();
             } else if (aba === 'orcamentos') {
                 tOrc?.classList.remove('hidden'); tOrc?.classList.add('flex');
@@ -5992,6 +6026,236 @@
             }, atraso);
         }
 
+        // ============================================================
+        // VENDEDORES — cadastro por loja no Firebase
+        // ============================================================
+        window.__vendedoresLoja = [];
+        window.__vendedorEditandoId = null;
+        const VENDEDORES_LEGADO = ['Mariana','Angelo','Marcos','Elaine','Kauany','Ruan','Dafner','Daiane'];
+
+        function normalizarNomeVendedor(nome) {
+            return String(nome || '').trim().replace(/\s+/g, ' ');
+        }
+
+        function escaparHtmlVendedor(valor) {
+            return String(valor ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+
+        function vendedoresHistoricosLoja() {
+            const nomes = new Set();
+            [...todasVendasBanco, ...todasDespesasBanco].forEach(r => {
+                const nome = normalizarNomeVendedor(r?.vendedor);
+                if (nome && nome !== 'Sistema' && nome !== 'Não informado') nomes.add(nome);
+            });
+            return [...nomes];
+        }
+
+        function atualizarSelectVendedorElemento(id, nomes, placeholder, incluirTodos = false) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const anterior = el.value;
+            let html = incluirTodos
+                ? '<option value="Todos">Todos os Vendedores</option>'
+                : `<option value="" disabled> ${escaparHtmlVendedor(placeholder || 'Selecione o vendedor...')}</option>`;
+            nomes.forEach(nome => { html += `<option value="${escaparHtmlVendedor(nome)}">${escaparHtmlVendedor(nome)}</option>`; });
+            el.innerHTML = html;
+            if (nomes.includes(anterior) || (incluirTodos && anterior === 'Todos')) el.value = anterior;
+            else if (!incluirTodos) el.value = '';
+        }
+
+        window.atualizarSelectsVendedores = () => {
+            const ativos = (window.__vendedoresLoja || [])
+                .filter(v => v.ativo !== false)
+                .map(v => normalizarNomeVendedor(v.nome))
+                .filter(Boolean)
+                .sort((a,b) => a.localeCompare(b,'pt-BR'));
+
+            const historicos = vendedoresHistoricosLoja();
+            const todosRelatorio = [...new Set([...(window.__vendedoresLoja || []).map(v => normalizarNomeVendedor(v.nome)), ...historicos])]
+                .filter(Boolean)
+                .sort((a,b) => a.localeCompare(b,'pt-BR'));
+
+            atualizarSelectVendedorElemento('vendedor', ativos, 'Selecione quem está vendendo...');
+            atualizarSelectVendedorElemento('recVendedor', ativos, 'Selecione o atendente...');
+            atualizarSelectVendedorElemento('sangriaVendedor', ativos, 'Selecione o responsável...');
+            atualizarSelectVendedorElemento('filtroRelVendedor', todosRelatorio, '', true);
+            atualizarSelectVendedorElemento('filtroAdminVendedor', todosRelatorio, '', true);
+        };
+
+        window.renderizarCadastroVendedores = () => {
+            const lista = document.getElementById('listaCadastroVendedores');
+            if (!lista) return;
+            const vendedores = [...(window.__vendedoresLoja || [])].sort((a,b) => {
+                if ((a.ativo !== false) !== (b.ativo !== false)) return a.ativo === false ? 1 : -1;
+                return String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR');
+            });
+            const ativos = vendedores.filter(v => v.ativo !== false).length;
+            const contador = document.getElementById('contadorVendedoresAtivos');
+            if (contador) contador.textContent = `${ativos} ativo${ativos === 1 ? '' : 's'}`;
+            const titulo = document.getElementById('tituloCadastroVendedoresLoja');
+            if (titulo) titulo.textContent = `Vendedores • ${window.nomeLojaAtual || 'Loja'}`;
+
+            if (!vendedores.length) {
+                lista.innerHTML = '<div class="text-sm text-gray-400 py-4">Nenhum vendedor cadastrado nesta loja.</div>';
+                return;
+            }
+
+            lista.innerHTML = vendedores.map(v => {
+                const ativo = v.ativo !== false;
+                return `<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3.5 rounded-2xl border ${ativo ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#0f111a]' : 'border-gray-200 dark:border-gray-800 bg-gray-100/70 dark:bg-gray-900/50 opacity-75'}">
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <p class="font-black text-gray-900 dark:text-white truncate">${escaparHtmlVendedor(v.nome)}</p>
+                            <span class="text-[9px] uppercase tracking-wider font-black px-2 py-1 rounded-full ${ativo ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-400'}">${ativo ? 'Ativo' : 'Inativo'}</span>
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <button type="button" onclick="window.editarCadastroVendedor('${escaparHtmlVendedor(v.id)}')" class="px-3 py-2 rounded-xl text-xs font-black bg-blue-50 text-blue-700 dark:bg-cyan-900/20 dark:text-cyan-400">Editar</button>
+                        <button type="button" onclick="window.alternarStatusVendedor('${escaparHtmlVendedor(v.id)}')" class="px-3 py-2 rounded-xl text-xs font-black ${ativo ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400' : 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'}">${ativo ? 'Desativar' : 'Ativar'}</button>
+                        <button type="button" onclick="window.excluirCadastroVendedor('${escaparHtmlVendedor(v.id)}')" class="px-3 py-2 rounded-xl text-xs font-black bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400">Excluir</button>
+                    </div>
+                </div>`;
+            }).join('');
+        };
+
+        async function semearVendedoresLegadoSeNecessario(lojaId) {
+            if (!window.firebaseDb || !lojaId) return;
+            const snap = await window.firebaseDb.collection('vendedores').where('loja_id','==',lojaId).get();
+            if (!snap.empty) return;
+
+            const nomes = [...new Set([...VENDEDORES_LEGADO, ...vendedoresHistoricosLoja()])]
+                .map(normalizarNomeVendedor).filter(Boolean);
+            const batch = window.firebaseDb.batch();
+            const agora = new Date().toISOString();
+            nomes.forEach(nome => {
+                const ref = window.firebaseDb.collection('vendedores').doc();
+                batch.set(ref, {
+                    id: ref.id,
+                    loja_id: lojaId,
+                    loja_slug: window.lojaAtualSlug || '',
+                    nome,
+                    ativo: true,
+                    criado_em: agora,
+                    atualizado_em: agora,
+                    origem: 'cadastro_legado'
+                });
+            });
+            if (nomes.length) await batch.commit();
+        }
+
+        window.carregarVendedoresLoja = async (silencioso = false) => {
+            try {
+                if (!window.firebaseDb) throw new Error('Firebase não está disponível');
+                const lojaId = lojaIdPorSlug(window.lojaAtualSlug);
+                if (!lojaId) throw new Error('Loja ativa sem identificação no Firebase');
+
+                await semearVendedoresLegadoSeNecessario(lojaId);
+                const snap = await window.firebaseDb.collection('vendedores').where('loja_id','==',lojaId).get();
+                window.__vendedoresLoja = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                window.atualizarSelectsVendedores();
+                window.renderizarCadastroVendedores();
+                if (!silencioso) console.info(`Vendedores carregados: ${window.__vendedoresLoja.length} • ${window.nomeLojaAtual}`);
+            } catch (e) {
+                console.warn('Falha ao carregar vendedores:', e);
+                if (!silencioso) mostrarToast(`Vendedores: ${e.message || e}`, 'bg-red-600 text-white');
+            }
+        };
+
+        window.cancelarEdicaoVendedor = () => {
+            window.__vendedorEditandoId = null;
+            const input = document.getElementById('cadVendedorNome');
+            if (input) input.value = '';
+            const btn = document.getElementById('btnSalvarVendedor');
+            if (btn) btn.textContent = 'Cadastrar vendedor';
+            document.getElementById('btnCancelarEdicaoVendedor')?.classList.add('hidden');
+        };
+
+        window.editarCadastroVendedor = (id) => {
+            const vend = (window.__vendedoresLoja || []).find(v => String(v.id) === String(id));
+            if (!vend) return;
+            window.__vendedorEditandoId = vend.id;
+            const input = document.getElementById('cadVendedorNome');
+            if (input) { input.value = vend.nome || ''; input.focus(); input.select(); }
+            const btn = document.getElementById('btnSalvarVendedor');
+            if (btn) btn.textContent = 'Salvar alteração';
+            document.getElementById('btnCancelarEdicaoVendedor')?.classList.remove('hidden');
+        };
+
+        window.salvarCadastroVendedor = async () => {
+            const input = document.getElementById('cadVendedorNome');
+            const nome = normalizarNomeVendedor(input?.value);
+            if (!nome) { mostrarToast('Informe o nome do vendedor.', 'bg-orange-500 text-white'); input?.focus(); return; }
+            try {
+                const lojaId = lojaIdPorSlug(window.lojaAtualSlug);
+                if (!lojaId) throw new Error('Loja ativa não identificada');
+                const duplicado = (window.__vendedoresLoja || []).find(v =>
+                    String(v.id) !== String(window.__vendedorEditandoId || '') &&
+                    normalizarNomeVendedor(v.nome).toLocaleLowerCase('pt-BR') === nome.toLocaleLowerCase('pt-BR')
+                );
+                if (duplicado) { mostrarToast('Já existe um vendedor com esse nome nesta loja.', 'bg-orange-500 text-white'); return; }
+
+                const agora = new Date().toISOString();
+                if (window.__vendedorEditandoId) {
+                    await window.firebaseDb.collection('vendedores').doc(String(window.__vendedorEditandoId)).set({
+                        nome, atualizado_em: agora
+                    }, { merge: true });
+                    mostrarToast('Vendedor atualizado.', 'bg-green-600 text-white');
+                } else {
+                    const ref = window.firebaseDb.collection('vendedores').doc();
+                    await ref.set({
+                        id: ref.id,
+                        loja_id: lojaId,
+                        loja_slug: window.lojaAtualSlug || '',
+                        nome,
+                        ativo: true,
+                        criado_em: agora,
+                        atualizado_em: agora
+                    });
+                    mostrarToast('Vendedor cadastrado.', 'bg-green-600 text-white');
+                }
+                window.cancelarEdicaoVendedor();
+                await window.carregarVendedoresLoja(true);
+            } catch (e) {
+                console.error('Erro ao salvar vendedor:', e);
+                mostrarToast(`Não foi possível salvar o vendedor: ${e.message || e}`, 'bg-red-600 text-white');
+            }
+        };
+
+        window.alternarStatusVendedor = async (id) => {
+            const vend = (window.__vendedoresLoja || []).find(v => String(v.id) === String(id));
+            if (!vend) return;
+            try {
+                const novo = vend.ativo === false;
+                await window.firebaseDb.collection('vendedores').doc(String(vend.id)).set({
+                    ativo: novo,
+                    atualizado_em: new Date().toISOString()
+                }, { merge: true });
+                await window.carregarVendedoresLoja(true);
+                mostrarToast(novo ? 'Vendedor ativado.' : 'Vendedor desativado.', novo ? 'bg-green-600 text-white' : 'bg-orange-500 text-white');
+            } catch (e) {
+                mostrarToast(`Não foi possível alterar o vendedor: ${e.message || e}`, 'bg-red-600 text-white');
+            }
+        };
+
+        window.excluirCadastroVendedor = (id) => {
+            const vend = (window.__vendedoresLoja || []).find(v => String(v.id) === String(id));
+            if (!vend) return;
+            window.abrirModal(
+                'Excluir vendedor?',
+                `O cadastro de ${vend.nome} será excluído desta loja. As vendas antigas continuarão com o nome do vendedor no histórico.`,
+                async () => {
+                    try {
+                        await window.firebaseDb.collection('vendedores').doc(String(vend.id)).delete();
+                        if (String(window.__vendedorEditandoId || '') === String(vend.id)) window.cancelarEdicaoVendedor();
+                        await window.carregarVendedoresLoja(true);
+                        mostrarToast('Cadastro do vendedor excluído.', 'bg-green-600 text-white');
+                    } catch (e) {
+                        mostrarToast(`Não foi possível excluir o vendedor: ${e.message || e}`, 'bg-red-600 text-white');
+                    }
+                }
+            );
+        };
+
         window.renderizarDashVendedores = () => {
             const container = document.getElementById('gridVendedoresRanking');
             if (!container) return;
@@ -6696,7 +6960,8 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
                 registros_excluidos: ['id','loja_id','tipo','legacy_id'],
                 orcamentos: ['id','loja_id','numero','cliente_nome','cliente_doc','cliente_telefone','data_orcamento','validade','observacoes','subtotal','total','status','itens','config_loja','criado_em','atualizado_em'],
                 finance_lancamentos: ['id','loja_id'],
-                finance_recorrentes: ['id','loja_id']
+                finance_recorrentes: ['id','loja_id'],
+                vendedores: ['id','loja_id','loja_slug','nome','ativo','criado_em','atualizado_em']
             };
             for (const [tabela, campos] of Object.entries(schemas)) {
                 const properties = {};
@@ -7541,6 +7806,11 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'recebimentos' }, tratarEvento)
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'sangrias' }, tratarEvento)
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'lembretes' }, tratarEvento)
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'vendedores' }, (payload) => {
+                    const lojaId = payload?.new?.loja_id ?? payload?.old?.loja_id ?? null;
+                    const slug = slugPorLojaIdRemoto(lojaId);
+                    if (!slug || slug === window.lojaAtualSlug) window.carregarVendedoresLoja?.(true);
+                })
                 .subscribe((status) => {
                     if (status === 'SUBSCRIBED') console.info('Firebase Realtime conectado.');
                     else if (status === 'CHANNEL_ERROR') console.warn('Firebase Realtime indisponível.');
@@ -7816,6 +8086,7 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
             const barra = document.getElementById('barraContextoLoja');
             if (barra) { barra.classList.remove('hidden'); barra.classList.add('flex'); }
             atualizarTelasDaLoja();
+            await window.carregarVendedoresLoja?.(true);
             window.mudarAba('caixa');
             window.trocandoLoja = false;
             mostrarToast(`Loja ativa: ${window.nomeLojaAtual}`, 'bg-blue-600 text-white');
@@ -7827,6 +8098,7 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
                     carregarDadosLocaisDaLoja(slug);
                     marcarRegistrosDaLoja();
                     atualizarTelasDaLoja();
+                    await window.carregarVendedoresLoja?.(true);
                     renderizarAcesso();
                     renderizarPainelGeralLocal();
                 } catch (e) {
