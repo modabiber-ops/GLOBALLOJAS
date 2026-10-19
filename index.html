@@ -3427,32 +3427,55 @@
             localStorage.setItem('lembretesSistemaCaixa__global', dados);
         };
 
-        // Sincronização exclusiva dos lembretes com o Supabase.
-        // Antes, este módulo salvava apenas no localStorage; por isso o lembrete
-        // desaparecia em outro dispositivo e não chegava à coleção lembretes.
+        // Sincronização exclusiva dos lembretes com o Firebase / Cloud Firestore.
+        // Este módulo grava diretamente no Firestore porque a função interna
+        // sincronizarColecao pertence à camada multi-lojas e não fica disponível
+        // neste escopo. Assim, o lembrete só é confirmado após a gravação remota.
         window.sincronizarLembretesAgora = async () => {
-            if (!window.supabaseDisponivel || typeof sincronizarColecao !== 'function') return;
+            if (!window.firebaseDb || !window.firebaseDisponivel) {
+                throw new Error('Firebase indisponível para salvar lembretes.');
+            }
 
             const registros = (todosLembretesBanco || []).map(l => ({
                 ...l,
                 lojaSlug: l.lojaSlug || window.lojaAtualSlug
             }));
 
-            // Os lembretes são globais na visualização, mas cada registro
-            // continua pertencendo à loja em que foi cadastrado no banco.
-            const porLoja = new Map();
-            registros.forEach(l => {
-                const slug = l.lojaSlug || window.lojaAtualSlug;
-                if (!porLoja.has(slug)) porLoja.set(slug, []);
-                porLoja.get(slug).push(l);
-            });
+            for (const lembrete of registros) {
+                const slug = lembrete.lojaSlug || window.lojaAtualSlug;
+                const lojaId = window.LOJAS_DB?.get?.(slug)?.id || null;
+                if (!lojaId) throw new Error(`Loja sem id no Firebase: ${slug}`);
 
-            for (const [slug, lista] of porLoja) {
-                await sincronizarColecao('lembretes', lista, slug);
+                const idDocumento = String(lembrete.supabaseId || lembrete.id);
+                const payload = { ...lembrete, lojaSlug: slug };
+                const dados = {
+                    id: idDocumento,
+                    loja_id: String(lojaId),
+                    legado_id: lembrete.id != null ? String(lembrete.id) : idDocumento,
+                    payload: payload,
+                    timestamp: Number(lembrete.timestamp || Date.now()),
+                    cliente: lembrete.cliente || '',
+                    telefone: lembrete.telefone || '',
+                    produto: lembrete.produto || '',
+                    valor: Number(lembrete.valor || 0),
+                    data_vencimento: lembrete.dataVencimento || '',
+                    status: lembrete.status || 'pendente',
+                    criado_em: lembrete.criadoEm || new Date(Number(lembrete.timestamp || Date.now())).toISOString(),
+                    concluido_em: lembrete.concluidoEm || null
+                };
+
+                await window.firebaseDb.collection('lembretes').doc(idDocumento).set(dados, { merge: true });
+                lembrete.supabaseId = idDocumento;
+
+                const original = todosLembretesBanco.find(l => String(l.id) === String(lembrete.id));
+                if (original) original.supabaseId = idDocumento;
             }
+
+            window.salvarLembretesLocal();
+            return true;
         };
 
-        window.adicionarLembrete = () => {
+        window.adicionarLembrete = async () => {
             const cliente = document.getElementById('lemCliente').value.trim();
             const produto = document.getElementById('lemProduto').value.trim();
             const telefone = document.getElementById('lemTelefone')?.value.trim() || '';
@@ -3493,10 +3516,16 @@
 
             todosLembretesBanco.unshift(novoLembrete);
             window.salvarLembretesLocal();
-            window.sincronizarLembretesAgora().catch(e => {
-                console.warn('Falha ao salvar lembrete no Supabase:', e);
+
+            try {
+                await window.sincronizarLembretesAgora();
+            } catch (e) {
+                console.warn('Falha ao salvar lembrete no Firebase:', e);
+                mostrarToast('Não foi possível confirmar o lembrete no Firebase. Tente novamente antes de recarregar a página.', 'bg-red-600 text-white');
                 setTimeout(() => window.sincronizarLembretesAgora().catch(err => console.warn('Nova tentativa de lembrete falhou:', err)), 1500);
-            });
+                window.atualizarLembretes();
+                return;
+            }
 
             document.getElementById('lemCliente').value = '';
             document.getElementById('lemProduto').value = '';
@@ -3506,7 +3535,7 @@
             document.getElementById('lemData').value = '';
 
             window.atualizarLembretes();
-            mostrarToast("Lembrete adicionado!", "bg-green-600 text-white");
+            mostrarToast("Lembrete adicionado e salvo!", "bg-green-600 text-white");
         };
 
         window.abrirWhatsAppLembrete = (id) => {
@@ -3530,7 +3559,7 @@
             window.open(`https://wa.me/${numero}?text=${encodeURIComponent(mensagem)}`, '_blank', 'noopener,noreferrer');
         };
 
-        window.editarDadosLembrete = (id) => {
+        window.editarDadosLembrete = async (id) => {
             const indice = todosLembretesBanco.findIndex(l => String(l.id) === String(id));
             if (indice === -1) return;
 
@@ -3555,24 +3584,33 @@
 
             window.salvarLembretesLocal();
 
-            window.sincronizarLembretesAgora().catch(e => {
-                console.warn('Falha ao atualizar dados cadastrais do lembrete no Supabase:', e);
-            });
-
-            window.atualizarLembretes();
-            mostrarToast('Dados cadastrais atualizados!', 'bg-green-600 text-white');
+            try {
+                await window.sincronizarLembretesAgora();
+                window.atualizarLembretes();
+                mostrarToast('Dados cadastrais atualizados!', 'bg-green-600 text-white');
+            } catch (e) {
+                console.warn('Falha ao atualizar dados cadastrais do lembrete no Firebase:', e);
+                window.atualizarLembretes();
+                mostrarToast('Alteração feita localmente, mas o Firebase não confirmou. Tente novamente.', 'bg-red-600 text-white');
+            }
         };
 
-        window.concluirLembrete = (id) => {
+        window.concluirLembrete = async (id) => {
             const indice = todosLembretesBanco.findIndex(l => String(l.id) === String(id));
             if (indice === -1) return;
 
             todosLembretesBanco[indice].status = 'concluido';
             todosLembretesBanco[indice].concluidoEm = new Date().toISOString();
             window.salvarLembretesLocal();
-            window.sincronizarLembretesAgora().catch(e => console.warn('Falha ao atualizar lembrete no Supabase:', e));
-            window.atualizarLembretes();
-            mostrarToast("Lembrete marcado como resolvido!", "bg-green-600 text-white");
+            try {
+                await window.sincronizarLembretesAgora();
+                window.atualizarLembretes();
+                mostrarToast("Lembrete marcado como resolvido!", "bg-green-600 text-white");
+            } catch (e) {
+                console.warn('Falha ao atualizar lembrete no Firebase:', e);
+                window.atualizarLembretes();
+                mostrarToast('Alteração feita localmente, mas o Firebase não confirmou. Tente novamente.', 'bg-red-600 text-white');
+            }
         };
 
         window.excluirLembrete = (id) => {
@@ -3582,12 +3620,23 @@
             window.abrirModal(
                 'Excluir lembrete?',
                 `O lembrete de ${lembrete.cliente} será removido.`,
-                () => {
-                    todosLembretesBanco = todosLembretesBanco.filter(l => String(l.id) !== String(id));
-                    window.salvarLembretesLocal();
-                    window.sincronizarLembretesAgora().catch(e => console.warn('Falha ao excluir lembrete no Supabase:', e));
-                    window.atualizarLembretes();
-                    mostrarToast("Lembrete excluído.", "bg-red-600 text-white");
+                async () => {
+                    try {
+                        if (!window.firebaseDb || !window.firebaseDisponivel) {
+                            throw new Error('Firebase indisponível para excluir o lembrete.');
+                        }
+
+                        const idDocumento = String(lembrete.supabaseId || lembrete.id);
+                        await window.firebaseDb.collection('lembretes').doc(idDocumento).delete();
+
+                        todosLembretesBanco = todosLembretesBanco.filter(l => String(l.id) !== String(id));
+                        window.salvarLembretesLocal();
+                        window.atualizarLembretes();
+                        mostrarToast("Lembrete excluído.", "bg-red-600 text-white");
+                    } catch (e) {
+                        console.warn('Falha ao excluir lembrete no Firebase:', e);
+                        mostrarToast('Não foi possível excluir o lembrete do Firebase. Nada foi removido.', 'bg-red-600 text-white');
+                    }
                 }
             );
         };
