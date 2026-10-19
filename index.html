@@ -1672,12 +1672,44 @@
 
                                 <div>
                                     <label for="lemValor" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Valor a pagar</label>
-                                    <input type="tel" inputmode="numeric" id="lemValor" placeholder="R$ 0,00" class="w-full bg-gray-50 dark:bg-[#0f111a] dark:text-white border-2 border-gray-200 dark:border-gray-700 text-xl font-bold p-3.5 rounded-xl focus:outline-none focus:border-indigo-500 dark:focus:border-cyan-500 transition-colors" oninput="window.formatarEntradaGenerica(this)">
+                                    <input type="tel" inputmode="numeric" id="lemValor" placeholder="R$ 0,00" class="w-full bg-gray-50 dark:bg-[#0f111a] dark:text-white border-2 border-gray-200 dark:border-gray-700 text-xl font-bold p-3.5 rounded-xl focus:outline-none focus:border-indigo-500 dark:focus:border-cyan-500 transition-colors" oninput="window.formatarEntradaGenerica(this); window.atualizarCamposPagamentoLembrete?.()">
+                                </div>
+
+                                <div>
+                                    <label for="lemFormaPagamento" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Como será pago</label>
+                                    <select id="lemFormaPagamento" onchange="window.atualizarCamposPagamentoLembrete()" class="w-full bg-gray-50 dark:bg-[#0f111a] dark:text-gray-100 border border-gray-200 dark:border-gray-700 p-3.5 rounded-xl focus:outline-none focus:border-indigo-500 dark:focus:border-cyan-500 transition-colors">
+                                        <option value="">Selecione...</option>
+                                        <option value="Cartão de crédito">Cartão de crédito</option>
+                                        <option value="Cartão de débito">Cartão de débito</option>
+                                        <option value="PIX">PIX</option>
+                                        <option value="Dinheiro">Dinheiro</option>
+                                        <option value="A prazo">A prazo</option>
+                                    </select>
+                                </div>
+
+                                <div id="lemParcelasBox" class="hidden">
+                                    <label for="lemParcelas" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Em quantas vezes</label>
+                                    <select id="lemParcelas" onchange="window.atualizarCamposPagamentoLembrete()" class="w-full bg-gray-50 dark:bg-[#0f111a] dark:text-gray-100 border border-gray-200 dark:border-gray-700 p-3.5 rounded-xl focus:outline-none focus:border-indigo-500 dark:focus:border-cyan-500 transition-colors">
+                                        <option value="1">1x</option>
+                                        <option value="2">2x</option>
+                                        <option value="3">3x</option>
+                                        <option value="4">4x</option>
+                                        <option value="5">5x</option>
+                                        <option value="6">6x</option>
+                                        <option value="7">7x</option>
+                                        <option value="8">8x</option>
+                                        <option value="9">9x</option>
+                                        <option value="10">10x</option>
+                                        <option value="11">11x</option>
+                                        <option value="12">12x</option>
+                                    </select>
+                                    <p id="lemParcelasInfo" class="hidden text-xs font-bold text-emerald-600 dark:text-emerald-400 mt-2"></p>
                                 </div>
 
                                 <div>
                                     <label for="lemData" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Data combinada para pagamento</label>
                                     <input type="date" id="lemData" class="w-full bg-gray-50 dark:bg-[#0f111a] dark:text-gray-100 border border-gray-200 dark:border-gray-700 p-3.5 rounded-xl focus:outline-none focus:border-indigo-500 dark:focus:border-cyan-500 transition-colors" style="color-scheme: light dark;">
+                                    <p id="lemDataAutomaticaInfo" class="hidden text-xs text-gray-500 dark:text-gray-400 mt-2">Parcelado em mais de 1x: a primeira parcela vence automaticamente no próximo mês, no mesmo dia da compra.</p>
                                 </div>
 
                                 <button onclick="window.adicionarLembrete()" class="w-full bg-indigo-600 hover:bg-indigo-700 dark:bg-cyan-600 dark:hover:bg-cyan-500 text-white font-bold py-3.5 rounded-xl shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2">
@@ -3490,6 +3522,14 @@
                 telefone: String(l.telefone || ''),
                 produto: String(l.produto || ''),
                 valor: Number(l.valor || 0),
+                valor_total: Number(l.valorTotal || l.valor || 0),
+                forma_pagamento: String(l.formaPagamento || ''),
+                total_parcelas: Number(l.totalParcelas || 1),
+                parcela_atual: Number(l.parcelaAtual || 1),
+                parcelas_restantes: Number(l.parcelasRestantes ?? l.totalParcelas ?? 1),
+                grupo_parcelamento_id: String(l.grupoParcelamentoId || ''),
+                data_compra: String(l.dataCompra || ''),
+                dia_parcela: Number(l.diaParcela || 0),
                 data_vencimento: String(l.dataVencimento || ''),
                 status: String(l.status || 'pendente'),
                 criado_em: l.criadoEm || new Date(Number(l.timestamp || Date.now())).toISOString(),
@@ -3564,13 +3604,88 @@
             return await window.processarFilaLembretes();
         };
 
+        function dataIsoLocal(date = new Date()) {
+            const ano = date.getFullYear();
+            const mes = String(date.getMonth() + 1).padStart(2, '0');
+            const dia = String(date.getDate()).padStart(2, '0');
+            return `${ano}-${mes}-${dia}`;
+        }
+
+        function calcularDataParcela(dataCompraIso, numeroParcela, diaPreferido = null) {
+            const partes = String(dataCompraIso || '').split('-').map(Number);
+            if (partes.length !== 3 || partes.some(n => !Number.isFinite(n))) return '';
+            const [ano, mes, diaCompra] = partes;
+            const diaBase = Number(diaPreferido || diaCompra);
+            const baseMes = (mes - 1) + Number(numeroParcela || 1);
+            const anoDestino = ano + Math.floor(baseMes / 12);
+            const mesDestino = ((baseMes % 12) + 12) % 12;
+            const ultimoDia = new Date(anoDestino, mesDestino + 1, 0).getDate();
+            const diaDestino = Math.min(Math.max(1, diaBase), ultimoDia);
+            return `${anoDestino}-${String(mesDestino + 1).padStart(2, '0')}-${String(diaDestino).padStart(2, '0')}`;
+        }
+
+        function valorDaParcela(valorTotal, totalParcelas, parcelaAtual) {
+            const totalCentavos = Math.round(Number(valorTotal || 0) * 100);
+            const qtd = Math.max(1, Number(totalParcelas || 1));
+            const base = Math.floor(totalCentavos / qtd);
+            const resto = totalCentavos - (base * qtd);
+            const atual = Math.max(1, Number(parcelaAtual || 1));
+            const centavos = atual === qtd ? base + resto : base;
+            return centavos / 100;
+        }
+
+        window.atualizarCamposPagamentoLembrete = () => {
+            const forma = document.getElementById('lemFormaPagamento')?.value || '';
+            const parcelasBox = document.getElementById('lemParcelasBox');
+            const parcelasEl = document.getElementById('lemParcelas');
+            const dataEl = document.getElementById('lemData');
+            const infoParcelas = document.getElementById('lemParcelasInfo');
+            const infoData = document.getElementById('lemDataAutomaticaInfo');
+            const valorInput = document.getElementById('lemValor');
+
+            const aPrazo = forma === 'A prazo';
+            parcelasBox?.classList.toggle('hidden', !aPrazo);
+            if (!aPrazo && parcelasEl) parcelasEl.value = '1';
+
+            const parcelas = aPrazo ? Math.max(1, Number(parcelasEl?.value || 1)) : 1;
+            const parceladoAutomatico = aPrazo && parcelas > 1;
+
+            if (dataEl) {
+                dataEl.disabled = parceladoAutomatico;
+                if (parceladoAutomatico) {
+                    const compra = dataIsoLocal(new Date());
+                    dataEl.value = calcularDataParcela(compra, 1, new Date().getDate());
+                }
+            }
+            infoData?.classList.toggle('hidden', !parceladoAutomatico);
+
+            if (infoParcelas) {
+                if (parceladoAutomatico) {
+                    const total = parseFloat(valorInput?.dataset?.rawValue || 0);
+                    const parcela = valorDaParcela(total, parcelas, 1);
+                    const venc = dataEl?.value ? formatarDataIsoBr(dataEl.value) : '';
+                    infoParcelas.textContent = total > 0
+                        ? `${parcelas}x de ${formataBRL(parcela)} • 1ª parcela em ${venc}`
+                        : `${parcelas} parcelas • 1ª parcela em ${venc}`;
+                    infoParcelas.classList.remove('hidden');
+                } else {
+                    infoParcelas.classList.add('hidden');
+                    infoParcelas.textContent = '';
+                }
+            }
+        };
+
         window.adicionarLembrete = async () => {
             const cliente = document.getElementById('lemCliente').value.trim();
             const produto = document.getElementById('lemProduto').value.trim();
             const telefone = document.getElementById('lemTelefone')?.value.trim() || '';
             const valorInput = document.getElementById('lemValor');
-            const valor = parseFloat(valorInput.dataset.rawValue || 0);
-            const dataVencimento = document.getElementById('lemData').value;
+            const valorTotal = parseFloat(valorInput.dataset.rawValue || 0);
+            const formaPagamento = document.getElementById('lemFormaPagamento')?.value || '';
+            const totalParcelas = formaPagamento === 'A prazo' ? Math.max(1, Number(document.getElementById('lemParcelas')?.value || 1)) : 1;
+            const compraIso = dataIsoLocal(new Date());
+            const diaParcela = new Date().getDate();
+            let dataVencimento = document.getElementById('lemData').value;
 
             if (!cliente) {
                 mostrarToast("Informe o nome do cliente!", "bg-orange-500 text-white");
@@ -3580,31 +3695,47 @@
                 mostrarToast("Informe o produto ou a descrição!", "bg-orange-500 text-white");
                 return;
             }
-            if (valor <= 0) {
+            if (valorTotal <= 0) {
                 mostrarToast("Informe o valor que ficou pendente!", "bg-orange-500 text-white");
                 return;
             }
+            if (!formaPagamento) {
+                mostrarToast("Informe como será feito o pagamento!", "bg-orange-500 text-white");
+                return;
+            }
+
+            const parceladoAutomatico = formaPagamento === 'A prazo' && totalParcelas > 1;
+            if (parceladoAutomatico) dataVencimento = calcularDataParcela(compraIso, 1, diaParcela);
+
             if (!dataVencimento) {
                 mostrarToast("Informe a data combinada para pagamento!", "bg-orange-500 text-white");
                 return;
             }
 
             const agora = new Date();
+            const grupoParcelamentoId = parceladoAutomatico ? `parcelamento-${agora.getTime()}` : '';
+            const valorAtual = parceladoAutomatico ? valorDaParcela(valorTotal, totalParcelas, 1) : valorTotal;
             const novoLembrete = {
-                id: Date.now(),
+                id: parceladoAutomatico ? `${grupoParcelamentoId}-p1` : agora.getTime(),
                 timestamp: agora.getTime(),
                 lojaSlug: window.lojaAtualSlug,
                 cliente,
                 telefone,
                 produto,
-                valor,
+                valor: valorAtual,
+                valorTotal,
+                formaPagamento,
+                totalParcelas,
+                parcelaAtual: 1,
+                parcelasRestantes: totalParcelas,
+                grupoParcelamentoId,
+                dataCompra: compraIso,
+                diaParcela,
                 dataVencimento,
                 status: 'pendente',
                 criadoEm: agora.toISOString()
             };
 
-            // Primeiro preserva localmente e na fila. Assim o Realtime ou um reload
-            // não conseguem apagar o lembrete enquanto o Firebase ainda confirma.
             todosLembretesBanco.unshift(novoLembrete);
             enfileirarLembrete('upsert', novoLembrete);
             window.salvarLembretesLocal();
@@ -3614,7 +3745,7 @@
                 await gravarLembreteFirebase(novoLembrete);
                 removerLembreteDaFila(novoLembrete.id);
                 window.salvarLembretesLocal();
-                mostrarToast("Lembrete adicionado e salvo!", "bg-green-600 text-white");
+                mostrarToast(parceladoAutomatico ? `Lembrete salvo • parcela 1/${totalParcelas}` : "Lembrete adicionado e salvo!", "bg-green-600 text-white");
             } catch (e) {
                 console.warn('Lembrete salvo localmente e aguardando Firebase:', e);
                 reagendarFilaLembretes(1800);
@@ -3626,7 +3757,13 @@
             if (document.getElementById('lemTelefone')) document.getElementById('lemTelefone').value = '';
             valorInput.value = '';
             valorInput.dataset.rawValue = 0;
-            document.getElementById('lemData').value = '';
+            const formaEl = document.getElementById('lemFormaPagamento');
+            if (formaEl) formaEl.value = '';
+            const parcelasEl = document.getElementById('lemParcelas');
+            if (parcelasEl) parcelasEl.value = '1';
+            const dataEl = document.getElementById('lemData');
+            if (dataEl) { dataEl.disabled = false; dataEl.value = ''; }
+            window.atualizarCamposPagamentoLembrete();
         };
 
         window.abrirWhatsAppLembrete = (id) => {
@@ -3646,7 +3783,9 @@
             const nome = String(lembrete.cliente || 'cliente').trim();
             const valor = formataBRL(Number(lembrete.valor || 0));
             const vencimento = lembrete.dataVencimento ? formatarDataIsoBr(lembrete.dataVencimento) : 'a data combinada';
-            const mensagem = `Olá, ${nome}! Tudo bem? Estou entrando em contato para lembrar que ficou pendente o pagamento de ${valor}, com vencimento em ${vencimento}. Se precisar de alguma informação, estou à disposição.`;
+            const parcelaTxt = Number(lembrete.totalParcelas || 1) > 1 ? ` referente à parcela ${Number(lembrete.parcelaAtual || 1)}/${Number(lembrete.totalParcelas || 1)}` : '';
+            const formaTxt = lembrete.formaPagamento ? ` via ${lembrete.formaPagamento}` : '';
+            const mensagem = `Olá, ${nome}! Tudo bem? Estou entrando em contato para lembrar que ficou pendente o pagamento de ${valor}${parcelaTxt}${formaTxt}, com vencimento em ${vencimento}. Se precisar de alguma informação, estou à disposição.`;
             window.open(`https://wa.me/${numero}?text=${encodeURIComponent(mensagem)}`, '_blank', 'noopener,noreferrer');
         };
 
@@ -3692,20 +3831,71 @@
             if (indice === -1) return;
 
             const lembrete = todosLembretesBanco[indice];
+            const totalParcelas = Math.max(1, Number(lembrete.totalParcelas || 1));
+            const parcelaAtual = Math.max(1, Number(lembrete.parcelaAtual || 1));
+            const temProximaParcela = lembrete.formaPagamento === 'A prazo' && totalParcelas > 1 && parcelaAtual < totalParcelas;
+
             lembrete.status = 'concluido';
             lembrete.concluidoEm = new Date().toISOString();
+            lembrete.parcelasRestantes = Math.max(0, totalParcelas - parcelaAtual);
             enfileirarLembrete('upsert', lembrete);
+
+            let proximoLembrete = null;
+            if (temProximaParcela) {
+                const proxima = parcelaAtual + 1;
+                const grupoId = lembrete.grupoParcelamentoId || `parcelamento-${lembrete.timestamp || Date.now()}`;
+                const compraIso = lembrete.dataCompra || dataIsoLocal(new Date(Number(lembrete.timestamp || Date.now())));
+                const diaBase = Number(lembrete.diaParcela || String(compraIso).split('-')[2] || new Date().getDate());
+                const valorTotal = Number(lembrete.valorTotal || (Number(lembrete.valor || 0) * totalParcelas));
+                const agora = new Date();
+
+                proximoLembrete = {
+                    id: `${grupoId}-p${proxima}`,
+                    timestamp: agora.getTime(),
+                    lojaSlug: lembrete.lojaSlug || window.lojaAtualSlug,
+                    cliente: lembrete.cliente,
+                    telefone: lembrete.telefone || '',
+                    produto: lembrete.produto,
+                    valor: valorDaParcela(valorTotal, totalParcelas, proxima),
+                    valorTotal,
+                    formaPagamento: 'A prazo',
+                    totalParcelas,
+                    parcelaAtual: proxima,
+                    parcelasRestantes: totalParcelas - parcelaAtual,
+                    grupoParcelamentoId: grupoId,
+                    dataCompra: compraIso,
+                    diaParcela: diaBase,
+                    dataVencimento: calcularDataParcela(compraIso, proxima, diaBase),
+                    status: 'pendente',
+                    criadoEm: agora.toISOString()
+                };
+
+                if (!todosLembretesBanco.some(l => String(l.id) === String(proximoLembrete.id))) {
+                    todosLembretesBanco.unshift(proximoLembrete);
+                }
+                enfileirarLembrete('upsert', proximoLembrete);
+            }
+
             window.salvarLembretesLocal();
             window.atualizarLembretes();
 
             try {
                 await gravarLembreteFirebase(lembrete);
                 removerLembreteDaFila(lembrete.id);
-                mostrarToast("Lembrete marcado como resolvido!", "bg-green-600 text-white");
+
+                if (proximoLembrete) {
+                    await gravarLembreteFirebase(proximoLembrete);
+                    removerLembreteDaFila(proximoLembrete.id);
+                    window.salvarLembretesLocal();
+                    mostrarToast(`Parcela ${parcelaAtual}/${totalParcelas} paga. Agora faltam ${totalParcelas - parcelaAtual} parcela(s).`, "bg-green-600 text-white");
+                } else {
+                    window.salvarLembretesLocal();
+                    mostrarToast("Lembrete marcado como resolvido!", "bg-green-600 text-white");
+                }
             } catch (e) {
-                console.warn('Conclusão de lembrete aguardando Firebase:', e);
+                console.warn('Conclusão/parcela de lembrete aguardando Firebase:', e);
                 reagendarFilaLembretes();
-                mostrarToast('Lembrete resolvido. Sincronização pendente.', 'bg-orange-500 text-white');
+                mostrarToast(proximoLembrete ? 'Parcela paga e próxima parcela criada. Sincronização pendente.' : 'Lembrete resolvido. Sincronização pendente.', 'bg-orange-500 text-white');
             }
         };
 
@@ -3895,6 +4085,11 @@
                 const vencido = !concluido && dias !== null && dias < 0;
                 const venceHoje = !concluido && dias === 0;
                 const venceAmanha = !concluido && dias === 1;
+                const formaPagamento = String(lembrete.formaPagamento || '').trim();
+                const totalParcelas = Math.max(1, Number(lembrete.totalParcelas || 1));
+                const parcelaAtual = Math.max(1, Number(lembrete.parcelaAtual || 1));
+                const ehParcelado = formaPagamento === 'A prazo' && totalParcelas > 1;
+                const parcelasEmAberto = ehParcelado ? Math.max(0, totalParcelas - parcelaAtual + (concluido ? 0 : 1)) : 0;
 
                 let statusTexto = '';
                 let classesStatus = '';
@@ -3944,6 +4139,7 @@
                                     <div class="min-w-0 flex-1">
                                         <p class="font-black text-gray-900 dark:text-white text-base leading-tight break-words" title="${escaparHtmlLembrete(lembrete.cliente)}">${escaparHtmlLembrete(lembrete.cliente)}</p>
                                         <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 break-words">${escaparHtmlLembrete(lembrete.produto)}</p>
+                                        ${formaPagamento ? `<p class="text-[11px] font-bold text-gray-500 dark:text-gray-400 mt-1">${escaparHtmlLembrete(formaPagamento)}${ehParcelado ? ` • Parcela ${parcelaAtual}/${totalParcelas}${!concluido ? ` • faltam ${parcelasEmAberto}` : ''}` : ''}</p>` : ''}
                                     </div>
                                 </div>
                             </div>
@@ -3957,6 +4153,7 @@
                             <div class="md:col-span-2">
                                 <span class="md:hidden text-[10px] font-black text-gray-400 uppercase tracking-wider">Valor</span>
                                 <p class="text-sm md:text-base font-black ${concluido ? 'text-gray-500 dark:text-gray-400' : 'text-gray-900 dark:text-white'} mt-0.5 md:mt-0">${formataBRL(Number(lembrete.valor || 0))}</p>
+                                ${ehParcelado && Number(lembrete.valorTotal || 0) > 0 ? `<span class="block text-[10px] text-gray-400 mt-1">Total: ${formataBRL(Number(lembrete.valorTotal || 0))}</span>` : ''}
                             </div>
 
                             <div class="md:col-span-2 flex items-center md:pr-2">
@@ -7111,7 +7308,7 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
                 vendas: ['id','loja_id','legado_id','payload','timestamp','data_iso','data_br','hora','forma_pagamento','detalhes','vendedor','descricao','cliente_nome','cliente_doc','qtd','unitario','total','recebido','troco','itens'],
                 recebimentos: ['id','loja_id','legado_id','payload','timestamp','data_iso','data_br','hora','vendedor','cliente_nome','cliente_doc','tipo','forma','detalhes','valor','recebido'],
                 sangrias: ['id','loja_id','legacy_id','data_movimento','hora_movimento','valor','motivo','responsavel','dados_originais'],
-                lembretes: ['id','loja_id','legado_id','payload','timestamp','cliente','telefone','produto','valor','data_vencimento','status','criado_em','concluido_em'],
+                lembretes: ['id','loja_id','legado_id','payload','timestamp','cliente','telefone','produto','valor','valor_total','forma_pagamento','total_parcelas','parcela_atual','parcelas_restantes','grupo_parcelamento_id','data_compra','dia_parcela','data_vencimento','status','criado_em','concluido_em'],
                 boletos: ['id','loja_id','legado_id','payload','timestamp','cobrador','cnpj','valor','vencimento','forma_pagamento','codigo_pagamento','prioridade','prioridade_score','status','criado_em','pago_em'],
                 venda_itens: ['id','loja_id','legado_id','payload','venda_id','descricao','qtd','unitario','total'],
                 lojas: ['id','slug','nome','payload'],
@@ -7124,7 +7321,7 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
             for (const [tabela, campos] of Object.entries(schemas)) {
                 const properties = {};
                 for (const c of campos) {
-                    properties[c] = { type: ['timestamp','qtd','unitario','total','recebido','troco','valor','prioridade_score'].includes(c) ? 'number' : (['payload','detalhes','itens','dados_originais','config_loja'].includes(c) ? 'object' : 'string') };
+                    properties[c] = { type: ['timestamp','qtd','unitario','total','recebido','troco','valor','valor_total','total_parcelas','parcela_atual','parcelas_restantes','dia_parcela','prioridade_score'].includes(c) ? 'number' : (['payload','detalhes','itens','dados_originais','config_loja'].includes(c) ? 'object' : 'string') };
                 }
                 COLUNAS[tabela] = { properties };
             }
@@ -7257,6 +7454,14 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
             definir(out,'lembretes',['telefone','phone','whatsapp','numero_whatsapp'],l.telefone);
             definir(out,'lembretes',['produto','descricao'],l.produto);
             definir(out,'lembretes',['valor','total'],l.valor);
+            definir(out,'lembretes',['valor_total'],l.valorTotal);
+            definir(out,'lembretes',['forma_pagamento','forma'],l.formaPagamento);
+            definir(out,'lembretes',['total_parcelas'],l.totalParcelas);
+            definir(out,'lembretes',['parcela_atual'],l.parcelaAtual);
+            definir(out,'lembretes',['parcelas_restantes'],l.parcelasRestantes);
+            definir(out,'lembretes',['grupo_parcelamento_id'],l.grupoParcelamentoId);
+            definir(out,'lembretes',['data_compra'],l.dataCompra);
+            definir(out,'lembretes',['dia_parcela'],l.diaParcela);
             definir(out,'lembretes',['data_vencimento','vencimento','data'],l.dataVencimento);
             definir(out,'lembretes',['status'],l.status);
             definir(out,'lembretes',['criado_em','created_at'],l.criadoEm);
@@ -7723,6 +7928,14 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
             l.telefone ??= lerCampo(linha,['telefone','phone','whatsapp','numero_whatsapp']) || '';
             l.produto ??= lerCampo(linha,['produto','descricao']) || '';
             l.valor ??= Number(lerCampo(linha,['valor','total']) || 0);
+            l.valorTotal ??= Number(lerCampo(linha,['valor_total']) || l.valor || 0);
+            l.formaPagamento ??= lerCampo(linha,['forma_pagamento','forma']) || '';
+            l.totalParcelas ??= Number(lerCampo(linha,['total_parcelas']) || 1);
+            l.parcelaAtual ??= Number(lerCampo(linha,['parcela_atual']) || 1);
+            l.parcelasRestantes ??= Number(lerCampo(linha,['parcelas_restantes']) ?? l.totalParcelas ?? 1);
+            l.grupoParcelamentoId ??= lerCampo(linha,['grupo_parcelamento_id']) || '';
+            l.dataCompra ??= lerCampo(linha,['data_compra']) || '';
+            l.diaParcela ??= Number(lerCampo(linha,['dia_parcela']) || 0);
             l.dataVencimento ??= lerCampo(linha,['data_vencimento','vencimento','data']) || '';
             l.status ??= lerCampo(linha,['status']) || 'pendente';
             l.criadoEm ??= lerCampo(linha,['criado_em','created_at']) || new Date(l.timestamp).toISOString();
