@@ -846,7 +846,7 @@
                         <div>
                             <p class="geral-kicker text-[10px] md:text-xs font-black uppercase">Acesso administrativo • Empresas BJ</p>
                             <h1 class="text-3xl md:text-5xl font-black text-white mt-2 tracking-[-0.03em]">Painel Geral</h1>
-                            <p class="text-sm md:text-base text-gray-300 mt-2 max-w-2xl">Visão consolidada das cinco lojas, com faturamento, meios de pagamento e movimentações.</p>
+                            <p class="text-sm md:text-base text-gray-300 mt-2 max-w-2xl">Visão consolidada das seis lojas, com faturamento, meios de pagamento e movimentações.</p>
                         </div>
                         <div class="flex items-center gap-3 self-start md:self-center flex-wrap justify-end">
                             <div class="geral-bg-toggle" aria-label="Cor de fundo do Painel Geral">
@@ -900,7 +900,7 @@
                             <div>
                                 <p class="text-[10px] font-black uppercase tracking-[.18em] text-gray-400">Visão de vendas</p>
                                 <h2 class="text-2xl md:text-3xl font-black text-gray-900 dark:text-white mt-1">Faturamento consolidado</h2>
-                                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Total das cinco lojas e distribuição por meio de pagamento.</p>
+                                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Total das seis lojas e distribuição por meio de pagamento.</p>
                             </div>
                             <div class="geral-filter flex flex-col sm:flex-row gap-2">
                                 <input id="geralDataInicioFat" type="date" aria-label="Data inicial do faturamento">
@@ -912,7 +912,7 @@
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                             <div class="geral-accent-card md:col-span-1 p-5 md:p-6 flex flex-col justify-between min-h-[154px]">
                                 <div class="flex items-center justify-between gap-3">
-                                    <p class="text-[10px] uppercase tracking-[.16em] font-black opacity-60">Total das 5 lojas</p>
+                                    <p class="text-[10px] uppercase tracking-[.16em] font-black opacity-60">Total das 6 lojas</p>
                                     <span class="w-9 h-9 rounded-full bg-black/10 flex items-center justify-center font-black">↗</span>
                                 </div>
                                 <div>
@@ -6965,7 +6965,8 @@
             { slug: 'tecn_in', nome: 'TECN IN', cupom: 'TECN IN' },
             { slug: 'biber_moda_1', nome: 'Biber Moda 1', cupom: 'BIBER MODA 1' },
             { slug: 'biber_moda_2', nome: 'Biber Moda 2', cupom: 'BIBER MODA 2' },
-            { slug: 'kauany_biju', nome: 'Kauany Biju', cupom: 'KAUANY BIJU' }
+            { slug: 'kauany_biju', nome: 'Kauany Biju', cupom: 'KAUANY BIJU' },
+            { slug: 'black_friday', nome: 'Black Friday', cupom: 'BLACK FRIDAY' }
         ];
 
         const BASES_LOCAIS = {
@@ -7812,7 +7813,8 @@ function chaveLoja(base, slug) { return `${base}__${slug}`; }
                 { id:'153cb87a-017b-4f74-90e7-00a0757513be', slug:'tecn_in', nome:'TECN IN' },
                 { id:'fc70dd5c-632e-4dc3-bb2b-9e208f270515', slug:'biber_moda_1', nome:'Biber Moda 1' },
                 { id:'123af157-b721-4cdb-bc20-8b7da91020df', slug:'biber_moda_2', nome:'Biber Moda 2' },
-                { id:'829ce6ec-df80-4c3b-8227-b3d0610ba9cf', slug:'kauany_biju', nome:'Kauany Biju' }
+                { id:'829ce6ec-df80-4c3b-8227-b3d0610ba9cf', slug:'kauany_biju', nome:'Kauany Biju' },
+                { id:'8e36c0c6-69bf-4c50-8f0b-3d7c2d1a7a6f', slug:'black_friday', nome:'Black Friday' }
             ];
 
             for (const loja of lojasFixas) {
