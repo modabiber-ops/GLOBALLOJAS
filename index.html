@@ -4170,11 +4170,11 @@
                                     Editar
                                 </button>
                                 ${!concluido ? `
-                                    <button onclick="window.concluirLembrete(${JSON.stringify(lembrete.id)})" class="shrink-0 min-w-[72px] bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3 py-2.5 rounded-lg active:scale-95 transition-all" title="Marcar como concluído">
+                                    <button onclick="window.concluirLembrete(decodeURIComponent('${encodeURIComponent(String(lembrete.id))}'))" class="shrink-0 min-w-[72px] bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3 py-2.5 rounded-lg active:scale-95 transition-all" title="Marcar como concluído">
                                         Concluir
                                     </button>
                                 ` : ''}
-                                <button onclick="window.excluirLembrete(${JSON.stringify(lembrete.id)})" class="shrink-0 min-w-[65px] bg-white dark:bg-[#0f111a] hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 font-bold text-xs px-3 py-2.5 rounded-lg active:scale-95 transition-all" title="Excluir lembrete">
+                                <button onclick="window.excluirLembrete(decodeURIComponent('${encodeURIComponent(String(lembrete.id))}'))" class="shrink-0 min-w-[65px] bg-white dark:bg-[#0f111a] hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 font-bold text-xs px-3 py-2.5 rounded-lg active:scale-95 transition-all" title="Excluir lembrete">
                                     Excluir
                                 </button>
                             </div>
